@@ -320,6 +320,7 @@ export function renderMarkdownResults(jobs, tagAnnotations = [], artifactById = 
   // Rendered success/failure cells carry artifact links after the glyph;
   // rank by the leading token or every such cell would rank as unknown (-1)
   // and lose to any skip already in the map.
+  /** @param {string} cell */
   const rankOf = (cell) => RANK.findIndex((t) => cell === t || cell.startsWith(`${t} `));
   /** @type {Map<string, Map<string, string>>} */
   const rows = new Map();
