@@ -56,8 +56,9 @@
 #   * A dummy provider key is seeded after install so the update leg sees
 #     the ready app shell instead of the onboarding overlay (a real
 #     updating user has a configured provider).
-#   * we don't set .skip_upstream_prompt, but we shim `git` so it returns
-#     the real upstream url for 'git remote get-url origin' 
+#   * The git shim reports the official URL. Detached updaters can resolve a
+#     different git.exe, so the test home also records that upstream setup was
+#     declined. The file:// transport must not prompt to add a second remote.
 #
 # USAGE (local Windows box or CI):
 #   powershell -File tests\install\windows-e2e.ps1 -Phase all
@@ -909,6 +910,9 @@ function Invoke-PhaseInstall {
 function Invoke-PhaseUpdate {
     $state = Read-State
     $env:HERMES_HOME = $HermesHome
+    # Match the POSIX driver's explicit opt-out when a detached updater bypasses
+    # the PATH shim and sees our local transport as a fork.
+    New-Item -ItemType File -Path (Join-Path $HermesHome ".skip_upstream_prompt") -Force | Out-Null
 
     # The update becomes available the way it does for a real user: the
     # remote's main moves forward. The GUI route re-advances harmlessly
