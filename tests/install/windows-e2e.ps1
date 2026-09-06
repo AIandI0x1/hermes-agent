@@ -764,12 +764,15 @@ function Invoke-GuiUpdateDesktopRoute([string]$TargetSha) {
         Copy-Item (Join-Path $AssetsDir "drive-update.cjs") $driver -Force
         Copy-Item (Join-Path $AssetsDir "window-input.cjs") (Join-Path $driverDir "window-input.cjs") -Force
         Push-Location $driverDir
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         try {
             & $node $driver $desktopExe $proof 2>&1 |
                 ForEach-Object { Write-Host "  $_" }
             $driveExit = $LASTEXITCODE
         } finally {
             Pop-Location
+            $ErrorActionPreference = $prevEap
             Remove-Item -LiteralPath $driver -Force -ErrorAction SilentlyContinue
         }
         Assert-True ($driveExit -eq 0) "GUI driver clicked Update now and the app quit for hand-off"
