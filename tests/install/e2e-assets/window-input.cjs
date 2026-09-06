@@ -11,10 +11,15 @@ async function prepareWindowForInput(app, page) {
     return true
   })
   if (persistent) {
-    await page.waitForFunction(async () => {
-      const state = await globalThis.hermesDesktop.zoom.get()
-      return state.percent === 100
-    }, undefined, { timeout: 15_000 })
+    // Playwright 1.58 treats an async waitForFunction predicate's Promise as
+    // truthy even when it resolves false. Await each IPC read on the driver.
+    const deadline = Date.now() + 15_000
+    for (;;) {
+      const state = await page.evaluate(() => globalThis.hermesDesktop.zoom.get())
+      if (state.percent === 100) break
+      if (Date.now() >= deadline) throw new Error('timed out waiting for 100% app window zoom')
+      await page.waitForTimeout(100)
+    }
   } else {
     // Older sampled releases have no zoom preference bridge.
     await window.evaluate(win => win.webContents.setZoomLevel(0))
