@@ -20,6 +20,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 
 const { _electron } = require('@playwright/test')
+const { prepareWindowForInput } = require('./window-input.cjs')
 
 const exePath = process.argv[2]
 const proofDir = process.argv[3]
@@ -117,29 +118,8 @@ async function main() {
   log(`window picked (${app.windows().length} windows, url=${page.url()})`)
   log('first window acquired')
 
-  // The app ships a 90% UI-zoom default, so a fresh install renders at
-  // devicePixelRatio 0.9 and Playwright's input coordinates land ~10% off
-  // target on the CI runners. Force 100% through the same webContents API
-  // the app's zoom control uses. A single set gets reverted (the boot path
-  // re-applies the default asynchronously), so set-verify-retry until dpr
-  // reads 1.
-  try {
-    const before = await page.evaluate(() => window.devicePixelRatio)
-    let after = before
-    for (let i = 0; i < 20; i++) {
-      await app.evaluate(({ BrowserWindow }) => {
-        for (const w of BrowserWindow.getAllWindows()) {
-          w.webContents.setZoomLevel(0)
-        }
-      })
-      await page.waitForTimeout(1000)
-      after = await page.evaluate(() => window.devicePixelRatio)
-      if (Math.abs(after - 1) < 0.001) break
-    }
-    log(`[zoom] forced 100% via webContents.setZoomLevel(0): dpr ${before} -> ${after}`)
-  } catch (e) {
-    log(`[zoom] direct zoom set failed (continuing): ${e.message}`)
-  }
+  await prepareWindowForInput(app, page)
+  log('[zoom] app window prepared at 100%')
 
   // Boot: wait for the composer to exist — the shell is mounted by then.
   // The real backend (`hermes serve`) is booting underneath; give it time.

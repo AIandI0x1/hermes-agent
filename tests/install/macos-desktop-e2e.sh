@@ -306,7 +306,7 @@ run_playwright_update() {
   local spec="$1"
   local pw_dir
   pw_dir="$(ensure_playwright)"
-  cp "$ASSETS/launch-from-spec.mjs" "$pw_dir/"
+  cp "$ASSETS/launch-from-spec.mjs" "$ASSETS/window-input.cjs" "$pw_dir/"
   local rc=0
   (cd "$pw_dir" && node launch-from-spec.mjs \
     --spec "$spec" \

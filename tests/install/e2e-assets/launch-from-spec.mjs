@@ -32,6 +32,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 import { _electron } from '@playwright/test';
+import { prepareWindowForInput } from './window-input.cjs';
 
 /**
  * @typedef {{argv: string[], cwd: string, env: Record<string, string>,
@@ -150,29 +151,8 @@ async function main() {
   log(`window up: ${await window.title()} (${app.windows().length} windows, picked url=${window.url()})`);
   await window.screenshot({ path: `${values.spec}.window.png` }).catch(() => {});
 
-  // The app ships a 90% UI-zoom default, so a fresh install renders at
-  // devicePixelRatio 0.9 and Playwright's input coordinates land ~10% off
-  // target on the CI runners. Force 100% through the same webContents API
-  // the app's zoom control uses. A single set gets reverted (the boot path
-  // re-applies the default asynchronously), so set-verify-retry until dpr
-  // reads 1.
-  try {
-    const before = await window.evaluate(() => window.devicePixelRatio);
-    let after = before;
-    for (let i = 0; i < 20; i++) {
-      await app.evaluate(({ BrowserWindow }) => {
-        for (const w of BrowserWindow.getAllWindows()) {
-          w.webContents.setZoomLevel(0);
-        }
-      });
-      await window.waitForTimeout(1000);
-      after = await window.evaluate(() => window.devicePixelRatio);
-      if (Math.abs(after - 1) < 0.001) break;
-    }
-    log(`[zoom] forced 100% via webContents.setZoomLevel(0): dpr ${before} -> ${after}`);
-  } catch (e) {
-    log(`[zoom] direct zoom set failed (continuing): ${e.message}`);
-  }
+  await prepareWindowForInput(app, window);
+  log('[zoom] app window prepared at 100%');
 
   if (values['no-update']) {
     log('smoke mode: window proven, closing');

@@ -429,6 +429,7 @@ function Invoke-HermesDesktopAppUpdate([string]$TargetSha) {
     Assert-True ($npmExit -eq 0) "npm install @playwright/test@$PlaywrightVersion into the driver dir"
 
     Copy-Item (Join-Path $AssetsDir "launch-from-spec.mjs") (Join-Path $driverDir "launch-from-spec.mjs") -Force
+    Copy-Item (Join-Path $AssetsDir "window-input.cjs") (Join-Path $driverDir "window-input.cjs") -Force
     $prevEap = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     Push-Location $driverDir
     try {
@@ -755,6 +756,7 @@ function Invoke-GuiUpdateDesktopRoute([string]$TargetSha) {
         # node_modules.
         $driver = Join-Path $driverDir "e2e-drive-update.cjs"
         Copy-Item (Join-Path $AssetsDir "drive-update.cjs") $driver -Force
+        Copy-Item (Join-Path $AssetsDir "window-input.cjs") (Join-Path $driverDir "window-input.cjs") -Force
         Push-Location $driverDir
         try {
             & $node $driver $desktopExe $proof 2>&1 |
