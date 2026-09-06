@@ -797,7 +797,12 @@ function Invoke-GuiUpdateDesktopRoute([string]$TargetSha) {
         $updateLog = Join-Path $HermesHome "logs\update.log"
         $updateLogPos = 0
         $deadline = (Get-Date).AddMinutes(35)
+        $nextDiagnostic = Get-Date
         while ((Get-Date) -lt $deadline) {
+            if ($env:GITHUB_ACTIONS -eq "true" -and (Get-Date) -ge $nextDiagnostic) {
+                & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $AssetsDir "july-handoff-diagnostics.ps1") -WorkRoot $WorkRoot -Label "waiting"
+                $nextDiagnostic = (Get-Date).AddMinutes(2)
+            }
             if (Test-Path -LiteralPath $resultPath) { break }
             $head = ""
             try { $head = Get-InstalledHead } catch {}
@@ -870,6 +875,9 @@ function Invoke-GuiUpdateDesktopRoute([string]$TargetSha) {
             Get-Content -LiteralPath $handoffLog | Write-Host
             Write-Host "::endgroup::"
             Copy-Item $handoffLog (Join-Path $proof "desktop-update-handoff.log") -Force -ErrorAction SilentlyContinue
+        }
+        if ($env:GITHUB_ACTIONS -eq "true") {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $AssetsDir "july-handoff-diagnostics.ps1") -WorkRoot $WorkRoot -Label "before-teardown"
         }
         # Quit the relaunched app so job teardown is clean.
         Stop-HermesAppProcesses "post-update"
@@ -965,6 +973,40 @@ function Invoke-PhaseUpdate {
     Test-HermesRuns "post-update"
 }
 
+function Invoke-CheckedPhaseUpdate {
+    # Trace old Python stacks on CI without replacing updater behavior.
+    $state = Read-State
+    if ($env:GITHUB_ACTIONS -eq "true" -and $state.old -eq "7c1a029553d87c43ecff8a3821336bc95872213b" -and $InstallMethod -eq "desktop-installer@latest" -and $Route -eq "open-app-update") {
+        $traceDir = Join-Path $AssetsDir "handoff-trace"
+        $env:PYTHONPATH = if ($env:PYTHONPATH) { "$traceDir;$env:PYTHONPATH" } else { $traceDir }
+        $env:HERMES_E2E_HANDOFF_TRACE = Join-Path $WorkRoot "proof\handoff-stacks"
+        $env:PYTHONUNBUFFERED = "1"
+    }
+    Remove-Item -LiteralPath (Join-Path $WorkRoot "known-failure.json") -Force -ErrorAction SilentlyContinue
+    # Only evidence produced by this update attempt can match an exception.
+    foreach ($oldLog in @((Join-Path $WorkRoot "logs\update.log"), (Join-Path $HermesHome "logs\desktop.log"))) {
+        if (Test-Path -LiteralPath $oldLog) { Move-Item -LiteralPath $oldLog -Destination "$oldLog.before-update" -Force }
+    }
+    try {
+        Invoke-PhaseUpdate
+    } catch {
+        $failure = $_
+        $node = Get-ManagedNode
+        $classification = & $node (Join-Path $AssetsDir "known-failures.cjs") $WorkRoot $InstallMethod $Route $failure.Exception.Message
+        $classificationExit = $LASTEXITCODE
+        if ($classificationExit -ne 0) { throw $failure }
+        $receipt = ($classification | Out-String) | ConvertFrom-Json
+        Write-Host "KNOWN FAILURE [$($receipt.id)]: $($receipt.title)"
+        Write-Host "  $($receipt.explanation)"
+        if ($env:GITHUB_OUTPUT) {
+            Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "known_failure=$($receipt.id)" -Encoding UTF8
+        }
+        if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding UTF8 -Value "Known historical failure: $($receipt.title). See the result chart footnote and uploaded known-failure.json."
+        }
+    }
+}
+
 # ----------------------------------------------------------------------------
 # Dispatch
 # ----------------------------------------------------------------------------
@@ -982,11 +1024,11 @@ Set-GitRedirect
 switch ($Phase) {
     "stage"   { Invoke-PhaseStage }
     "install" { Invoke-PhaseInstall }
-    "update"  { Invoke-PhaseUpdate }
+    "update"  { Invoke-CheckedPhaseUpdate }
     "all" {
         Invoke-PhaseStage
         Invoke-PhaseInstall
-        Invoke-PhaseUpdate
+        Invoke-CheckedPhaseUpdate
     }
 }
 

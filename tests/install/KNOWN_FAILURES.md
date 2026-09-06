@@ -1,6 +1,8 @@
 # Confirmed historical upgrade limitations
 
-These failures cannot be repaired by changing the update target: the failing code is already loaded from the starting release. This is an evidence register, not a skip list. The workflow still runs these legs and preserves their failing exit codes. A later failure must match the recorded cause before it receives this classification; the tag alone is not enough.
+These failures cannot be repaired by changing the update target: the failing code is already loaded from the starting release. The workflow still executes each original update path. Only a match on the exact starting commit, method pair, failed assertion, and fresh log signatures produces a non-red known-failure receipt. Other errors still fail. The results table shows matched cases as `known [n]`, with the explanation and evidence in a footnote at the bottom. These cases are counted separately from passed upgrades.
+
+The machine-readable rules in `e2e-assets/known-failures.json` own the matcher and report footnote text. This document explains their historical evidence. Logs are rotated before each attempt so an earlier failure cannot classify a later one.
 
 ## Windows launcher self-lock
 

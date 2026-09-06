@@ -137,8 +137,18 @@ jobs:
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\install\windows-e2e.ps1 -Phase install -InstallMethod "${{ inputs.install-method }}" -Route "${{ inputs.update-method }}" -InstallRef "${{ inputs.install-ref }}" -SetupExeUrl ${{ inputs.setup-exe-url }}
 
       - name: Update ${{ inputs.install-ref }} -> HEAD (${{ inputs.update-method }})
+        id: update
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\install\windows-e2e.ps1 -Phase update -InstallMethod "${{ inputs.install-method }}" -Route "${{ inputs.update-method }}" -InstallRef "${{ inputs.install-ref }}" -SetupExeUrl ${{ inputs.setup-exe-url }}
+
+      - name: Upload known-failure receipt
+        if: steps.update.outputs.known_failure != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: install-e2e-known-${{ steps.update.outputs.known_failure }}--${{ inputs.leg-id }}
+          path: ${{ env.HERMES_E2E_WORKROOT }}\known-failure.json
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Stop screen recording
         if: always()

@@ -294,6 +294,9 @@ export function renderMarkdownPlan(envs, tags) {
  * @returns {string}
  */
 export function renderMarkdownResults(jobs, tagAnnotations = [], artifactById = new Map()) {
+  const knownRules = JSON.parse(fs.readFileSync(new URL('../../tests/install/e2e-assets/known-failures.json', import.meta.url), 'utf8'));
+  /** @type {Map<string, {number: number, rule: any}>} */
+  const footnotes = new Map();
   const LEG = /^(linux|windows|macos): (\S+) -> (\S+) \(([^)]+) -> HEAD\) \//;
   /** @type {Map<string, boolean>} */
   const desktopByTag = new Map(tagAnnotations.map((t) => [t.ref, t.desktop]));
@@ -315,7 +318,7 @@ export function renderMarkdownResults(jobs, tagAnnotations = [], artifactById = 
   // run workflow may have one inner job per driver arm; exactly one runs
   // and the others natively skip), so cells merge by significance: a real
   // outcome always beats a skip, and a bad outcome beats a good one.
-  const RANK = ['skip', 'TODO', 'pre-desktop', '&#x2705;', 'running', 'cancelled', '&#x274C;'];
+  const RANK = ['skip', 'TODO', 'pre-desktop', '&#x2705;', 'known', 'running', 'cancelled', '&#x274C;'];
   const SKIPS = ['skip', 'TODO', 'pre-desktop'];
   // Rendered success/failure cells carry artifact links after the glyph;
   // rank by the leading token or every such cell would rank as unknown (-1)
@@ -351,7 +354,14 @@ export function renderMarkdownResults(jobs, tagAnnotations = [], artifactById = 
       ? ` [📼](${runBase}/artifacts/${playerId}#zip=${encodeURIComponent(`${runBase}/artifacts/${logsId}`)}) [⬇️](${runBase}/artifacts/${logsId})`
       : '';
     switch (job.conclusion) {
-      case 'success': return `&#x2705;${reel}`;
+      case 'success': {
+        // Only the classifier's uploaded receipt turns a successful job into
+        // a known-failure cell. Tag membership alone never suppresses a red.
+        const rule = knownRules.find((/** @type {any} */ r) => artifactById.has(`install-e2e-known-${r.id}--${legId2}`));
+        if (!rule) return `&#x2705;${reel}`;
+        if (!footnotes.has(rule.id)) footnotes.set(rule.id, { number: footnotes.size + 1, rule });
+        return `known [^${footnotes.get(rule.id)?.number}]${reel}`;
+      }
       case 'failure': return `&#x274C;${reel}`;
       case 'skipped': return skipLabel(m[2], m[3], tag);
       case 'cancelled': return 'cancelled';
@@ -369,10 +379,11 @@ export function renderMarkdownResults(jobs, tagAnnotations = [], artifactById = 
   const passed = cells.filter((c) => c.startsWith('&#x2705;')).length;
   const failed = cells.filter((c) => c.startsWith('&#x274C;')).length;
   const skipped = cells.filter((c) => SKIPS.includes(c)).length;
+  const known = cells.filter((c) => c.startsWith('known ')).length;
   const lines = [
     '### Install & Update E2E results',
     '',
-    `${passed} passed, ${failed} failed, ${skipped} skipped (TODO = declared, no driver arm yet; pre-desktop = the starting release predates apps/desktop), ${cells.length} legs total`,
+    `${passed} passed, ${failed} failed, ${known} known failures, ${skipped} skipped (TODO = declared, no driver arm yet; pre-desktop = the starting release predates apps/desktop), ${cells.length} legs total`,
     '',
     `| combination | ${tags.join(' | ')} |`,
     `|---|${tags.map(() => '---').join('|')}|`,
@@ -381,6 +392,9 @@ export function renderMarkdownResults(jobs, tagAnnotations = [], artifactById = 
     lines.push(`| \`${combo}\` | ${tags.map((t) => byTag.get(t) || '-').join(' | ')} |`);
   }
   lines.push('');
+  for (const { number, rule } of footnotes.values()) {
+    lines.push(`[^${number}]: **${rule.title}.** ${rule.explanation} [Evidence](${rule.evidence}).`);
+  }
   return lines.join('\n');
 }
 
