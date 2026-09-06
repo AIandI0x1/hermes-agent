@@ -114,6 +114,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+# Match an interactive Unicode console when Python output is piped into the
+# UTF-8 transcript. Old releases otherwise select cp1252 and crash on banners.
+$env:PYTHONIOENCODING = "utf-8"
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+$OutputEncoding = [Console]::OutputEncoding
 
 if (-not $RepoRoot) {
     $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
@@ -380,7 +385,7 @@ function Invoke-HermesUpdate {
         $ErrorActionPreference = $prevEap
     }
     Write-LogGroup "hermes update transcript" $log
-    Assert-True ($updateExit -eq 0) "hermes update exited 0"
+    Assert-True ($updateExit -eq 0) "hermes update exited $updateExit (expected 0)"
 }
 
 function Invoke-HermesDesktopAppUpdate([string]$TargetSha) {

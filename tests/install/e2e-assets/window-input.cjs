@@ -15,7 +15,12 @@ async function prepareWindowForInput(app, page) {
     // truthy even when it resolves false. Await each IPC read on the driver.
     const deadline = Date.now() + 15_000
     for (;;) {
-      const state = await page.evaluate(() => globalThis.hermesDesktop.zoom.get())
+      const state = await page.evaluate(() => {
+        // Cold-start restoration can overwrite the first preference write.
+        // Reapply through its owner until a subsequent read observes it.
+        globalThis.hermesDesktop.zoom.setPercent(100)
+        return globalThis.hermesDesktop.zoom.get()
+      })
       if (state.percent === 100) break
       if (Date.now() >= deadline) throw new Error('timed out waiting for 100% app window zoom')
       await page.waitForTimeout(100)

@@ -6,6 +6,35 @@ const { prepareWindowForInput } = createRequire(import.meta.url)(
   '../../../tests/install/e2e-assets/window-input.cjs',
 )
 
+test('reapplies zoom when startup overwrites the first request', async () => {
+  let requests = 0
+  let factor = 0.9
+
+  const previous = (globalThis as any).hermesDesktop
+
+  ;(globalThis as any).hermesDesktop = { zoom: {
+    setPercent: () => { requests++;
+
+ if (requests > 1) {factor = 1} },
+    get: async () => ({ percent: factor * 100 }),
+  } }
+  const window = { evaluate: async (fn: any) => fn({ webContents: { getZoomFactor: () => factor } }) }
+
+  const page = {
+    evaluate: async (fn: any) => fn(),
+    waitForTimeout: async () => {
+      if (requests === 1) {throw new Error('startup overwrote zoom and the driver never reapplied it')}
+    },
+  }
+
+  try {
+    await prepareWindowForInput({ browserWindow: async () => window }, page)
+    expect(requests).toBeGreaterThan(1)
+  } finally {
+    ;(globalThis as any).hermesDesktop = previous
+  }
+})
+
 test('awaits the zoom response instead of accepting a truthy Promise', async () => {
   let reads = 0
   let factor = 0.9
