@@ -66,8 +66,8 @@ describe('known install failures', () => {
 })
 
 it('renders known receipts as footnotes, without suppressing a red job', async () => {
-  const modulePath = '../scripts/sandbox/generate-e2e-matrix.mjs'
-  const { renderMarkdownResults, legId } = await import(modulePath)
+  const modulePath = new URL('../scripts/sandbox/generate-e2e-matrix.mjs', import.meta.url).href
+  const { renderMarkdownResults, legId } = await import(/* @vite-ignore */ modulePath)
   const name = 'windows: installer-script -> hermes-update (v2026.3.12 -> HEAD)'
   const artifacts = new Map([[`install-e2e-known-${rules[0].id}--${legId(name)}`, 42]])
   const known = renderMarkdownResults([{ name: name + ' / e2e', conclusion: 'success' }], [], artifacts)
