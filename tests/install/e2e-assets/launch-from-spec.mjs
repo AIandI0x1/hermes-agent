@@ -216,6 +216,7 @@ async function main() {
     }
   }).then((d) => JSON.stringify(d)).catch((e) => `hit-dump failed: ${e.message}`)
   for (let iter = 1; ; iter++) {
+    await prepareWindowForInput(app, window);
     await later
       .click({ timeout: 2_000 })
       .then(async () => {
@@ -225,6 +226,9 @@ async function main() {
       .catch((e) => log(`[overlay] iter ${iter} chooseLater click failed: ${brief(e)}`))
     try {
       await settingsButton.click({ timeout: 4_000 })
+      // A landed click during shell hydration can be lost on a remount.
+      // Confirm the destination before looking for its About control.
+      await window.waitForURL(/[#/]settings(?:[/?]|$)/, { timeout: 4_000 })
       settingsOpened = true
       break
     } catch (e) {

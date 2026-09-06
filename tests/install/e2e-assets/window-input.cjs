@@ -21,8 +21,13 @@ async function prepareWindowForInput(app, page) {
         globalThis.hermesDesktop.zoom.setPercent(100)
         return globalThis.hermesDesktop.zoom.get()
       })
-      if (state.percent === 100) break
-      if (Date.now() >= deadline) throw new Error('timed out waiting for 100% app window zoom')
+      // The renderer IPC and BrowserWindow can observe different moments of
+      // startup restoration. Both must agree before the driver sends input.
+      const factor = await window.evaluate(win => win.webContents.getZoomFactor())
+      if (state.percent === 100 && Math.abs(factor - 1) < 0.001) return
+      if (Date.now() >= deadline) {
+        throw new Error(`timed out waiting for 100% app window zoom (IPC ${state.percent}%, factor ${factor})`)
+      }
       await page.waitForTimeout(100)
     }
   } else {

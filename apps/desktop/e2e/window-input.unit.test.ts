@@ -6,6 +6,28 @@ const { prepareWindowForInput } = createRequire(import.meta.url)(
   '../../../tests/install/e2e-assets/window-input.cjs',
 )
 
+test('does not finish when IPC reports 100% before the window factor settles', async () => {
+  let observations = 0
+  const previous = (globalThis as any).hermesDesktop
+  ;(globalThis as any).hermesDesktop = { zoom: {
+    setPercent: () => undefined,
+    get: async () => ({ percent: 100 }),
+  } }
+  const appWindow = { evaluate: async (fn: any) => fn({ webContents: {
+    getZoomFactor: () => ++observations === 1 ? 0.9 : 1,
+  } }) }
+  const page = {
+    evaluate: async (fn: any) => fn(),
+    waitForTimeout: async () => undefined,
+  }
+  try {
+    await prepareWindowForInput({ browserWindow: async () => appWindow }, page)
+    expect(observations).toBeGreaterThan(1)
+  } finally {
+    ;(globalThis as any).hermesDesktop = previous
+  }
+})
+
 test('reapplies zoom when startup overwrites the first request', async () => {
   let requests = 0
   let factor = 0.9

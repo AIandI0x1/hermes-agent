@@ -199,14 +199,16 @@ if launchFound {
 }
 Log("Launch clicked; waiting for the Hermes desktop app window")
 
-; The installer spawns Hermes.exe detached and exits itself.
+; WinWait returns 0 on timeout; it does not throw. The old unchecked return
+; led to WinGetPos throwing "Target window not found." Reuse the bounded
+; real-window poll so transient handles are ignored and failures name the wait.
+; CI's installer remained on LAUNCHING past 120s after a successful bootstrap.
 try {
-    WinWait(appWin, , 120)
+    appRect := WaitForRealWindow(appWin, 300000)
 } catch {
-    throw Error("Hermes.exe window did not appear within 120s of clicking Launch")
+    throw Error("Hermes.exe real-sized window did not appear within 300s of clicking Launch")
 }
-WinGetPos(&ax, &ay, &aw, &ah, appWin)
-Log(Format("App window appeared at x={1} y={2} w={3} h={4}", ax, ay, aw, ah))
+Log(Format("App window appeared at x={1} y={2} w={3} h={4}", appRect.x, appRect.y, appRect.w, appRect.h))
 
 Sleep(8000)   ; let the renderer paint (recorded as proof)
 Log("done")

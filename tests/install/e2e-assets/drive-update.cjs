@@ -161,6 +161,8 @@ async function main() {
   let iter = 0
 
   while (!openedSettings) {
+    // A boot-time restore or focus event can move the scale after preparation.
+    await prepareWindowForInput(app, page)
     iter++
     for (const make of laterLocators) {
       try {
