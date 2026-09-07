@@ -193,6 +193,27 @@ async function main() {
         log(`[overlay] iter ${iter} dismiss click failed: ${brief(e)}`)
       }
     }
+    // Escalation: on some runs the picker's button is actionable but the
+    // OS-level click point lands on a container that swallows the pointer
+    // (observed twice on the Setup.exe-install arm). dispatchEvent fires
+    // the DOM handler directly, bypassing hit-testing — only after real
+    // clicks have had two full iterations to land.
+    if (iter >= 3) {
+      for (const make of laterLocators) {
+        try {
+          const el = make(page).first()
+          if (await el.isVisible({ timeout: 500 })) {
+            await el.dispatchEvent('click')
+            log('dismissed onboarding overlay (dispatchEvent fallback)')
+            await page.waitForTimeout(2500)
+            await shot(page, '01b-onboarding-dismissed')
+            break
+          }
+        } catch (e) {
+          log(`[overlay] iter ${iter} dispatch fallback failed: ${brief(e)}`)
+        }
+      }
+    }
     for (const make of settingsLocators) {
       try {
         await make(page).first().click({ timeout: 2_500 })
