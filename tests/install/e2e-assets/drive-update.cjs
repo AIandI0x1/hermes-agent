@@ -21,6 +21,7 @@ const fs = require('node:fs')
 
 const { _electron } = require('@playwright/test')
 const { prepareWindowForInput } = require('./window-input.cjs')
+const { observeProcessClose } = require('./process-close.cjs')
 
 const exePath = process.argv[2]
 const proofDir = process.argv[3]
@@ -93,6 +94,9 @@ async function main() {
     env: { ...process.env },
     timeout: 120_000
   })
+  const child = app.process()
+  const waitForProcessClose = observeProcessClose(child)
+  log(`launched Electron pid=${child.pid}`)
 
   // firstWindow() can grab a helper webContents (wake indicator etc.), not
   // the main app window. Pick the window that actually renders UI (has a
@@ -255,7 +259,8 @@ async function main() {
   // The "Updating Hermes — this window will close" overlay should appear,
   // then the app quits (hand-off dwell). Screenshot the overlay while the
   // window is still alive.
-  await page.waitForTimeout(1200)
+  // The app can close during the dwell. This wait must outlive its page.
+  await new Promise(resolve => setTimeout(resolve, 1200))
   await shot(page, '05-updating-overlay')
 
   // ── Wait for the hand-off to take over ────────────────────────────────
@@ -315,7 +320,10 @@ async function main() {
     throw new Error('no hand-off within 150s of Update now (no marker, no result, app still alive)')
   }
 
-  log('hand-off confirmed — detached updater owns the rest')
+  // A marker appears before Electron exits. Exiting this driver at that point
+  // lets Playwright taskkill the entire tree, including the detached updater.
+  await waitForProcessClose()
+  log('Electron process closed — detached updater owns the rest')
 }
 
 main()

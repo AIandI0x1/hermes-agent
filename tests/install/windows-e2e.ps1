@@ -763,6 +763,7 @@ function Invoke-GuiUpdateDesktopRoute([string]$TargetSha) {
         $driver = Join-Path $driverDir "e2e-drive-update.cjs"
         Copy-Item (Join-Path $AssetsDir "drive-update.cjs") $driver -Force
         Copy-Item (Join-Path $AssetsDir "window-input.cjs") (Join-Path $driverDir "window-input.cjs") -Force
+        Copy-Item (Join-Path $AssetsDir "process-close.cjs") (Join-Path $driverDir "process-close.cjs") -Force
         Push-Location $driverDir
         $prevEap = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
