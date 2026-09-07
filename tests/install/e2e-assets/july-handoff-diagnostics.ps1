@@ -59,15 +59,19 @@ Write-Section "meta"
 Write-Output ("utc={0} workroot={1}" -f (Get-Date).ToUniversalTime().ToString("o"), $WorkRoot)
 
 Write-Section "processes"
-$procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
-if ($procs.Count -eq 0) {
-    Write-Output "Get-CimInstance returned nothing"
-}
+$procs = @(Get-CimInstance Win32_Process -ErrorAction Continue)
+Write-Output "CIM process count=$($procs.Count)"
+# The updater PID is authoritative even when its argv uses unnormalized paths.
+$ownerPath = Join-Path $WorkRoot "hermes-home\.hermes-update-in-progress"
+$ownerPid = if (Test-Path $ownerPath) { (Get-Content $ownerPath -First 1).Trim() } else { "" }
+Get-Process -ErrorAction Continue | Where-Object { $_.Id -eq $ownerPid -or $_.Path -like '*hermes-desktop-gui-e2e*' } |
+    Select-Object Id, ProcessName, Path, CPU, WorkingSet64 | Format-List | Out-String | Write-Output
 $rootPids = @{}
 foreach ($p in $procs) {
     $exe = [string]$p.ExecutablePath
     $cmd = [string]$p.CommandLine
-    $ref = ($exe -like "$WorkRoot\*") -or ($cmd -like "*$WorkRoot\*")
+    if ($exe) { $exe = [System.IO.Path]::GetFullPath($exe) }
+    $ref = ($exe -like "$WorkRoot\*") -or ($p.ProcessId -eq $ownerPid)
     if ($ref) { $rootPids[[uint32]$p.ProcessId] = $true }
 }
 # Expand descendants transitively (both directions of interest: children of
