@@ -193,11 +193,12 @@ async function main() {
         log(`[overlay] iter ${iter} dismiss click failed: ${brief(e)}`)
       }
     }
-    // Escalation: on some runs the picker's button is actionable but the
-    // OS-level click point lands on a container that swallows the pointer
-    // (observed twice on the Setup.exe-install arm). dispatchEvent fires
-    // the DOM handler directly, bypassing hit-testing — only after real
-    // clicks have had two full iterations to land.
+    // Escalation: the picker's button can be actionable while the OS-level
+    // click point lands on a wrapping container that swallows the pointer,
+    // so real clicks never register. dispatchEvent fires the DOM handler
+    // directly, bypassing hit-testing — but only after real clicks have
+    // had two full iterations to land, so runs where clicking works never
+    // take the shortcut.
     if (iter >= 3) {
       for (const make of laterLocators) {
         try {
