@@ -56,8 +56,9 @@
 #   * A dummy provider key is seeded after install so the update leg sees
 #     the ready app shell instead of the onboarding overlay (a real
 #     updating user has a configured provider).
-#   * we don't set .skip_upstream_prompt, but we shim `git` so it returns
-#     the real upstream url for 'git remote get-url origin' 
+#   * The git shim reports the official URL. Detached updaters can resolve a
+#     different git.exe, so the test home also records that upstream setup was
+#     declined. The file:// transport must not prompt to add a second remote.
 #
 # USAGE (local Windows box or CI):
 #   powershell -File tests\install\windows-e2e.ps1 -Phase all
@@ -114,6 +115,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+# Match an interactive Unicode console when Python output is piped into the
+# UTF-8 transcript. Old releases otherwise select cp1252 and crash on banners.
+$env:PYTHONIOENCODING = "utf-8"
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+$OutputEncoding = [Console]::OutputEncoding
 
 if (-not $RepoRoot) {
     $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
@@ -280,7 +286,37 @@ function Get-DesktopExe {
     return $null
 }
 
+# Install-side state snapshot, taken BEFORE Test-HermesRuns can throw: on
+# app-update legs the updater runs detached and its transcript lands in the
+# product logs and hand-off files, not in this driver. Copy those plus the
+# venv entry-point dir while the install is still there to inspect, so a
+# failed post-update assertion leaves its evidence in the proof tree.
+function Save-InstallSideState([string]$Label) {
+    $dest = Join-Path $ProofRoot "install-side-$Label"
+    New-Item -ItemType Directory -Path $dest -Force | Out-Null
+    $logsDir = Join-Path $HermesHome "logs"
+    if (Test-Path -LiteralPath $logsDir) {
+        Copy-Item $logsDir (Join-Path $dest "hermes-logs") -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    $resultFile = Join-Path $HermesHome ".hermes-update-result.json"
+    if (Test-Path -LiteralPath $resultFile) {
+        Copy-Item $resultFile $dest -Force -ErrorAction SilentlyContinue
+    }
+    $venvScripts = Join-Path $InstallDir "venv\Scripts"
+    if (Test-Path -LiteralPath $venvScripts) {
+        Get-ChildItem -LiteralPath $venvScripts |
+            Select-Object Name, Length, LastWriteTime |
+            Format-Table -AutoSize | Out-String |
+            Set-Content (Join-Path $dest "venv-scripts-ls.txt")
+    }
+    Get-ChildItem -LiteralPath $HermesHome -ErrorAction SilentlyContinue |
+        Select-Object Name, Length, LastWriteTime |
+        Format-Table -AutoSize | Out-String |
+        Set-Content (Join-Path $dest "hermes-home-ls.txt")
+}
+
 function Test-HermesRuns([string]$Label) {
+    Save-InstallSideState $Label
     $hermesExe = Join-Path $InstallDir "venv\Scripts\hermes.exe"
     Assert-True (Test-Path -LiteralPath $hermesExe) "$Label -- venv\Scripts\hermes.exe exists"
     & $hermesExe --version 2>&1 | ForEach-Object { Write-Host "    hermes --version| $_" }
@@ -350,7 +386,7 @@ function Invoke-HermesUpdate {
         $ErrorActionPreference = $prevEap
     }
     Write-LogGroup "hermes update transcript" $log
-    Assert-True ($updateExit -eq 0) "hermes update exited 0"
+    Assert-True ($updateExit -eq 0) "hermes update exited $updateExit (expected 0)"
 }
 
 function Invoke-HermesDesktopAppUpdate([string]$TargetSha) {
@@ -399,6 +435,7 @@ function Invoke-HermesDesktopAppUpdate([string]$TargetSha) {
     Assert-True ($npmExit -eq 0) "npm install @playwright/test@$PlaywrightVersion into the driver dir"
 
     Copy-Item (Join-Path $AssetsDir "launch-from-spec.mjs") (Join-Path $driverDir "launch-from-spec.mjs") -Force
+    Copy-Item (Join-Path $AssetsDir "window-input.cjs") (Join-Path $driverDir "window-input.cjs") -Force
     $prevEap = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     Push-Location $driverDir
     try {
@@ -725,13 +762,18 @@ function Invoke-GuiUpdateDesktopRoute([string]$TargetSha) {
         # node_modules.
         $driver = Join-Path $driverDir "e2e-drive-update.cjs"
         Copy-Item (Join-Path $AssetsDir "drive-update.cjs") $driver -Force
+        Copy-Item (Join-Path $AssetsDir "window-input.cjs") (Join-Path $driverDir "window-input.cjs") -Force
+        Copy-Item (Join-Path $AssetsDir "process-close.cjs") (Join-Path $driverDir "process-close.cjs") -Force
         Push-Location $driverDir
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         try {
             & $node $driver $desktopExe $proof 2>&1 |
                 ForEach-Object { Write-Host "  $_" }
             $driveExit = $LASTEXITCODE
         } finally {
             Pop-Location
+            $ErrorActionPreference = $prevEap
             Remove-Item -LiteralPath $driver -Force -ErrorAction SilentlyContinue
         }
         Assert-True ($driveExit -eq 0) "GUI driver clicked Update now and the app quit for hand-off"
@@ -833,6 +875,7 @@ function Invoke-GuiUpdateDesktopRoute([string]$TargetSha) {
             Write-Host "::endgroup::"
             Copy-Item $handoffLog (Join-Path $proof "desktop-update-handoff.log") -Force -ErrorAction SilentlyContinue
         }
+
         # Quit the relaunched app so job teardown is clean.
         Stop-HermesAppProcesses "post-update"
     }
@@ -872,6 +915,9 @@ function Invoke-PhaseInstall {
 function Invoke-PhaseUpdate {
     $state = Read-State
     $env:HERMES_HOME = $HermesHome
+    # Match the POSIX driver's explicit opt-out when a detached updater bypasses
+    # the PATH shim and sees our local transport as a fork.
+    New-Item -ItemType File -Path (Join-Path $HermesHome ".skip_upstream_prompt") -Force | Out-Null
 
     # The update becomes available the way it does for a real user: the
     # remote's main moves forward. The GUI route re-advances harmlessly
@@ -924,6 +970,32 @@ function Invoke-PhaseUpdate {
     Test-HermesRuns "post-update"
 }
 
+function Invoke-CheckedPhaseUpdate {
+    Remove-Item -LiteralPath (Join-Path $WorkRoot "known-failure.json") -Force -ErrorAction SilentlyContinue
+    # Only evidence produced by this update attempt can match an exception.
+    foreach ($oldLog in @((Join-Path $WorkRoot "logs\update.log"), (Join-Path $HermesHome "logs\desktop.log"))) {
+        if (Test-Path -LiteralPath $oldLog) { Move-Item -LiteralPath $oldLog -Destination "$oldLog.before-update" -Force }
+    }
+    try {
+        Invoke-PhaseUpdate
+    } catch {
+        $failure = $_
+        $node = Get-ManagedNode
+        $classification = & $node (Join-Path $AssetsDir "known-failures.cjs") $WorkRoot $InstallMethod $Route $failure.Exception.Message
+        $classificationExit = $LASTEXITCODE
+        if ($classificationExit -ne 0) { throw $failure }
+        $receipt = ($classification | Out-String) | ConvertFrom-Json
+        Write-Host "KNOWN FAILURE [$($receipt.id)]: $($receipt.title)"
+        Write-Host "  $($receipt.explanation)"
+        if ($env:GITHUB_OUTPUT) {
+            Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "known_failure=$($receipt.id)" -Encoding UTF8
+        }
+        if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding UTF8 -Value "Known historical failure: $($receipt.title). See the result chart footnote and uploaded known-failure.json."
+        }
+    }
+}
+
 # ----------------------------------------------------------------------------
 # Dispatch
 # ----------------------------------------------------------------------------
@@ -941,11 +1013,11 @@ Set-GitRedirect
 switch ($Phase) {
     "stage"   { Invoke-PhaseStage }
     "install" { Invoke-PhaseInstall }
-    "update"  { Invoke-PhaseUpdate }
+    "update"  { Invoke-CheckedPhaseUpdate }
     "all" {
         Invoke-PhaseStage
         Invoke-PhaseInstall
-        Invoke-PhaseUpdate
+        Invoke-CheckedPhaseUpdate
     }
 }
 

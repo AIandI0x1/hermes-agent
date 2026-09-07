@@ -57,6 +57,11 @@ on:
         required: false
         type: string
         default: '3'
+      install-ref:
+        description: 'Optional exact release tag for a focused reproduction; overrides tag-count.'
+        required: false
+        type: string
+        default: ''
   schedule:
     # Every 12 hours, off the hour to avoid the top-of-hour runner crunch.
     - cron: '20 7,19 * * *'
@@ -102,10 +107,17 @@ jobs:
           # applies to each per-OS matrix separately; at 10 tags the largest
           # is windows at 180 (first over the cap at 15 tags = 270).
           TAG_COUNT: ${{ inputs.tag-count || 2 }}
+          INSTALL_REF: ${{ inputs.install-ref }}
         run: |
           set -euo pipefail
           [[ "$TAG_COUNT" =~ ^(10|[1-9])$ ]] || { echo "tag-count must be 1-10, got: $TAG_COUNT" >&2; exit 1; }
-          tags="$(scripts/sandbox/pick-release-tags.sh --count "$TAG_COUNT")"
+          if [ -n "$INSTALL_REF" ]; then
+            [[ "$INSTALL_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo 'install-ref must be an exact release tag' >&2; exit 1; }
+            git rev-parse --verify "refs/tags/$INSTALL_REF^{commit}" >/dev/null
+            tags="$(jq -cn --arg ref "$INSTALL_REF" '[$ref]')"
+          else
+            tags="$(scripts/sandbox/pick-release-tags.sh --count "$TAG_COUNT")"
+          fi
           echo "Testing updates from: $tags"
           # Annotate each tag with what its own tree supports, so run
           # workflows can natively skip surfaces the starting version does
@@ -241,7 +253,9 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: scripts/sandbox/generate-e2e-matrix.mjs
+          sparse-checkout: |
+            scripts/sandbox/generate-e2e-matrix.mjs
+            tests/install/e2e-assets/known-failures.json
           sparse-checkout-cone-mode: false
       - env:
           GH_TOKEN: ${{ github.token }}
@@ -256,7 +270,7 @@ jobs:
               --paginate --jq '.jobs[] | {name, conclusion}' > /tmp/e2e-jobs.ndjson
             gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" \
               --paginate --jq '.artifacts[] | {name, id}' > /tmp/e2e-artifacts.ndjson
-            echo 'Legend: ✅ ran green · ❌ ran red · pre-desktop / TODO = why a leg skipped · 📼 opens the leg player (recording + synced logs)'
+            echo 'Legend: ✅ upgrade passed · known [n] = exact historical failure, see footnote · ❌ unexpected failure · pre-desktop / TODO = why a leg skipped · 📼 opens the leg player (recording + synced logs)'
             echo
             node scripts/sandbox/generate-e2e-matrix.mjs --format results \
               --tags '${{ needs.pick-releases.outputs.tags }}' \

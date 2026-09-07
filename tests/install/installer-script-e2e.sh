@@ -397,7 +397,7 @@ case "$UPDATE_METHOD" in
     (cd "$PW_DIR" && npm install --no-save --no-audit --no-fund \
       "@playwright/test@1.58.2" 2>&1 | ts_prefix > "$LOG_DIR/playwright-install.log") \
       || { log_group "playwright install transcript" "$LOG_DIR/playwright-install.log"; fail "playwright install failed"; }
-    cp "$ASSETS/launch-from-spec.mjs" "$PW_DIR/"
+    cp "$ASSETS/launch-from-spec.mjs" "$ASSETS/window-input.cjs" "$PW_DIR/"
     rc=0
     (cd "$PW_DIR" && node launch-from-spec.mjs \
       --spec "$SPEC" \
@@ -464,6 +464,24 @@ case "$UPDATE_METHOD" in
     ok "node_modules cleared for the head desktop smoke"
     ;;
 esac
+
+# Install-side state BEFORE the post-update assertions: on app-update legs
+# the updater's transcript is streamed into the app UI (or runs detached)
+# and is otherwise lost, so snapshot every place it also lands — product
+# logs, update hand-off files, the venv's entry-point dir — while the
+# install is still there to inspect. The assertions below can `fail` out
+# of the driver; the evidence must already be on disk when they do.
+ildest="$LOG_DIR/install-logs"
+mkdir -p "$ildest"
+cp -R "$HERMES_HOME/logs" "$ildest/hermes-logs" 2>/dev/null || true
+if [ -n "${XDG_DATA_HOME:-}" ]; then
+  cp -R "$XDG_DATA_HOME/hermes/logs" "$ildest/desktop-userdata-logs" 2>/dev/null || true
+fi
+cp "$HERMES_HOME/.hermes-update-result.json" "$ildest" 2>/dev/null || true
+ls -la "$HERMES_HOME" > "$ildest/hermes-home-ls.txt" 2>/dev/null || true
+ls -la "$INSTALL_DIR/venv/bin" > "$ildest/venv-bin-ls.txt" 2>/dev/null || true
+ok "collected install-side logs to $ildest"
+
 assert_checkout "$HEAD_SHA" HEAD
 smoke_desktop head
 

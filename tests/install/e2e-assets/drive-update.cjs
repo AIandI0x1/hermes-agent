@@ -20,6 +20,8 @@ const path = require('node:path')
 const fs = require('node:fs')
 
 const { _electron } = require('@playwright/test')
+const { prepareWindowForInput } = require('./window-input.cjs')
+const { observeProcessClose } = require('./process-close.cjs')
 
 const exePath = process.argv[2]
 const proofDir = process.argv[3]
@@ -92,6 +94,10 @@ async function main() {
     env: { ...process.env },
     timeout: 120_000
   })
+  const child = app.process()
+
+  const waitForProcessClose = observeProcessClose(child)
+  log(`launched Electron pid=${child.pid}`)
 
   // firstWindow() can grab a helper webContents (wake indicator etc.), not
   // the main app window. Pick the window that actually renders UI (has a
@@ -117,29 +123,8 @@ async function main() {
   log(`window picked (${app.windows().length} windows, url=${page.url()})`)
   log('first window acquired')
 
-  // The app ships a 90% UI-zoom default, so a fresh install renders at
-  // devicePixelRatio 0.9 and Playwright's input coordinates land ~10% off
-  // target on the CI runners. Force 100% through the same webContents API
-  // the app's zoom control uses. A single set gets reverted (the boot path
-  // re-applies the default asynchronously), so set-verify-retry until dpr
-  // reads 1.
-  try {
-    const before = await page.evaluate(() => window.devicePixelRatio)
-    let after = before
-    for (let i = 0; i < 20; i++) {
-      await app.evaluate(({ BrowserWindow }) => {
-        for (const w of BrowserWindow.getAllWindows()) {
-          w.webContents.setZoomLevel(0)
-        }
-      })
-      await page.waitForTimeout(1000)
-      after = await page.evaluate(() => window.devicePixelRatio)
-      if (Math.abs(after - 1) < 0.001) break
-    }
-    log(`[zoom] forced 100% via webContents.setZoomLevel(0): dpr ${before} -> ${after}`)
-  } catch (e) {
-    log(`[zoom] direct zoom set failed (continuing): ${e.message}`)
-  }
+  await prepareWindowForInput(app, page)
+  log('[zoom] app window prepared at 100%')
 
   // Boot: wait for the composer to exist — the shell is mounted by then.
   // The real backend (`hermes serve`) is booting underneath; give it time.
@@ -181,6 +166,8 @@ async function main() {
   let iter = 0
 
   while (!openedSettings) {
+    // A boot-time restore or focus event can move the scale after preparation.
+    await prepareWindowForInput(app, page)
     iter++
     for (const make of laterLocators) {
       try {
@@ -191,28 +178,6 @@ async function main() {
         break
       } catch (e) {
         log(`[overlay] iter ${iter} dismiss click failed: ${brief(e)}`)
-      }
-    }
-    // Escalation: the picker's button can be actionable while the OS-level
-    // click point lands on a wrapping container that swallows the pointer,
-    // so real clicks never register. dispatchEvent fires the DOM handler
-    // directly, bypassing hit-testing — but only after real clicks have
-    // had two full iterations to land, so runs where clicking works never
-    // take the shortcut.
-    if (iter >= 3) {
-      for (const make of laterLocators) {
-        try {
-          const el = make(page).first()
-          if (await el.isVisible({ timeout: 500 })) {
-            await el.dispatchEvent('click')
-            log('dismissed onboarding overlay (dispatchEvent fallback)')
-            await page.waitForTimeout(2500)
-            await shot(page, '01b-onboarding-dismissed')
-            break
-          }
-        } catch (e) {
-          log(`[overlay] iter ${iter} dispatch fallback failed: ${brief(e)}`)
-        }
       }
     }
     for (const make of settingsLocators) {
@@ -295,7 +260,8 @@ async function main() {
   // The "Updating Hermes — this window will close" overlay should appear,
   // then the app quits (hand-off dwell). Screenshot the overlay while the
   // window is still alive.
-  await page.waitForTimeout(1200)
+  // The app can close during the dwell. This wait must outlive its page.
+  await new Promise(resolve => setTimeout(resolve, 1200))
   await shot(page, '05-updating-overlay')
 
   // ── Wait for the hand-off to take over ────────────────────────────────
@@ -355,7 +321,10 @@ async function main() {
     throw new Error('no hand-off within 150s of Update now (no marker, no result, app still alive)')
   }
 
-  log('hand-off confirmed — detached updater owns the rest')
+  // A marker appears before Electron exits. Exiting this driver at that point
+  // lets Playwright taskkill the entire tree, including the detached updater.
+  await waitForProcessClose()
+  log('Electron process closed — detached updater owns the rest')
 }
 
 main()

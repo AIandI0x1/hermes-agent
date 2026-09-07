@@ -10,8 +10,8 @@ The test family has four layers. Each layer has one job.
 
 1. `scripts/sandbox/generate-e2e-matrix.mjs` declares the support matrix. It lists every {os, install-method, update-method} pair. It expands the pairs against the sampled release tags. It knows nothing about which pairs CI can run.
 2. `.github/workflows/install-e2e.yml` is the primary workflow. It picks the release tags, runs the generator, and fans out one matrix job per OS. It also writes the plan chart and the result chart on the run summary.
-3. The run workflows own the capability knowledge. `install-e2e-run.yml` serves linux and macos with one OS-agnostic driver. `install-e2e-windows-run.yml` serves windows. A job-level `if:` gate in each run workflow lists the pairs its driver can run. All other pairs skip natively and show as grey.
-4. The drivers do the work. `tests/install/installer-script-e2e.sh` is the POSIX driver. `tests/install/windows-e2e.ps1` is the windows driver; its install phase and update phase dispatch on separate method parameters, so any implemented update method can follow any implemented install method.
+3. The run workflows own the capability knowledge. `install-e2e-run.yml` serves linux. `install-e2e-windows-run.yml` serves windows. `install-e2e-macos-run.yml` selects either the shared script driver or the macOS GUI driver. Job-level `if:` gates select the supported pairs. All other pairs skip natively and show as grey.
+4. The drivers do the work. `tests/install/installer-script-e2e.sh` handles POSIX script installs, `tests/install/macos-desktop-e2e.sh` handles macOS dmg installs, and `tests/install/windows-e2e.ps1` handles Windows installs. Install and update methods are separate axes, subject to each workflow's capability gates.
 
 To declare a new method, edit the generator. To implement a method, flip the gate in the run workflow and extend a driver.
 
@@ -53,7 +53,7 @@ A leg can install a release from months back. The driver must not assume that th
 
 The desktop app has two launch paths, so the matrix has two app-update methods. Both click "Update now" in the running app. They differ in how the app starts:
 
-- `open-app-update`: the app starts from the OS entry point that the install created. On windows these are the Start Menu and Desktop shortcuts to the installed `Hermes.exe`; the desktop installer always creates them. The installer scripts do not create entry points: their opt-in desktop stage (`--include-desktop` / `-IncludeDesktop`) builds the app inside the checkout but does not register it with the OS. So `open-app-update` legs pair with a `desktop-installer` install.
+- `open-app-update`: the app starts from the installed app entry point. On Windows, both the desktop installer and `installer-script+desktop` create shortcuts, so both support this route. On Linux and macOS, the script's opt-in desktop stage builds inside the checkout without registering an OS entry point. The macOS route therefore requires a desktop-installer install; Linux has no open-app-update leg.
 - `hermes-desktop-app-update`: the app starts with the `hermes desktop` command. Every install method provides this command, on each OS that ships the desktop app. On linux this is the only app surface: no desktop installer and no packaged desktop artifact exist for linux. The driver captures the product's own launch call (argv, cwd, environment) with `e2e-assets/launch-capture/sitecustomize.py` and re-executes it under Playwright, which owns the app and clicks the update flow.
 
 ## Skips
@@ -63,7 +63,7 @@ A grey leg is normal. There are two causes:
 - The method pair is declared but cannot run: either no OS entry point exists for it (open-app-update after a plain script install registers nothing to open), or no driver arm exists yet. The gate in the run workflow lists the pairs that run.
 - The starting release predates the surface under test. Example: a release without `apps/desktop` has no window to launch. The tag annotation `tag_has_desktop` from the primary workflow marks these releases.
 
-The result chart on the run summary shows each leg as passed, failed, or skipped.
+The result chart on the run summary shows each leg as passed, failed, or skipped. [Confirmed historical upgrade limitations](KNOWN_FAILURES.md) records failures that cannot be fixed in the update target, with exact release commits and CI evidence. These are not blanket skips: the original paths still run. Exact signature matches are non-red, counted separately as known failures, and linked to footnotes at the bottom of the result chart. An unrelated error on the same tag still fails.
 
 ## Triggers and cost
 
@@ -77,7 +77,7 @@ The matrix does not run on pull requests. One leg installs real toolchains and t
 gh workflow run install-e2e.yml --ref <branch> -f route=both -f tag-count=2
 ```
 
-Cost per run, so nobody is surprised: 41 legs per sampled tag (windows 18, macos 15, linux 8), so the default 2 tags is up to 82 legs. A typical green leg finishes in 7-15 minutes; every leg is capped at 60. Route slices for cheaper reads: `update` (linux only, 8/tag), `windows-desktop` (18/tag), `macos-desktop` (15/tag). `tag-count` is validated to 1-10. GitHub's 256-job cap applies to each OS matrix separately, not to the combined leg count; at 10 tags the matrices hold 180 windows, 150 macos, and 80 linux entries. Windows would first exceed the cap at 15 tags (270).
+Cost per run, so nobody is surprised: 41 legs per sampled tag (windows 18, macos 15, linux 8), so scheduled and release-tag runs sample 2 tags for up to 82 legs. Manual dispatch defaults to 3 tags for up to 123 legs. A typical green leg finishes in 7-15 minutes; every leg is capped at 60. Route slices for cheaper reads: `update` (linux only, 8/tag), `windows-desktop` (18/tag), `macos-desktop` (15/tag). `tag-count` is validated to 1-10. GitHub's 256-job cap applies to each OS matrix separately, not to the combined leg count; at 10 tags the matrices hold 180 windows, 150 macos, and 80 linux entries. Windows would first exceed the cap at 15 tags (270).
 
 Running the drivers locally: don't, except in a disposable VM. The windows driver kills every process named Hermes during teardown and the macos driver operates on `/Applications/Hermes.app`; on a machine with a real Hermes install they will interfere with it.
 

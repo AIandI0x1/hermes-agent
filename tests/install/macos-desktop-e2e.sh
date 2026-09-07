@@ -306,7 +306,7 @@ run_playwright_update() {
   local spec="$1"
   local pw_dir
   pw_dir="$(ensure_playwright)"
-  cp "$ASSETS/launch-from-spec.mjs" "$pw_dir/"
+  cp "$ASSETS/launch-from-spec.mjs" "$ASSETS/window-input.cjs" "$pw_dir/"
   local rc=0
   (cd "$pw_dir" && node launch-from-spec.mjs \
     --spec "$spec" \
@@ -405,6 +405,24 @@ PYEOF
   got="$(git -C "$INSTALL_DIR" rev-parse HEAD)"
   [ "$got" = "$HEAD_SHA" ] || fail "checkout is $got, expected HEAD ($HEAD_SHA)"
   ok "checkout landed on HEAD ($HEAD_SHA)"
+
+  # Install-side state BEFORE the post-update smoke: on app-update legs the
+  # updater's own transcript is streamed into the app UI and otherwise lost,
+  # so snapshot every place it also lands (product logs, update hand-off
+  # files, the venv's entry-point dir) while the install is still there to
+  # inspect — the smoke assertion below can `fail` out of the driver, and the
+  # evidence must already be on disk when it does.
+  local ildest="$LOG_DIR/install-logs"
+  mkdir -p "$ildest"
+  cp -R "$HOME_SANDBOX/.hermes/logs" "$ildest/hermes-logs" 2>/dev/null || true
+  local ud="$HOME_SANDBOX/Library/Application Support/Hermes"
+  [ -d "$ud" ] && cp -R "$ud" "$ildest/desktop-userdata" 2>/dev/null || true
+  cp "$HERMES_HOME/.hermes-update-result.json" "$ildest" 2>/dev/null || true
+  ls -la "$HERMES_HOME" > "$ildest/hermes-home-ls.txt" 2>/dev/null || true
+  ls -la "$INSTALL_DIR/venv/bin" > "$ildest/venv-bin-ls.txt" 2>/dev/null || true
+  ls -la "$INSTALL_DIR/venv" > "$ildest/venv-ls.txt" 2>/dev/null || true
+  ok "collected install-side logs to $ildest"
+
   "$INSTALL_DIR/venv/bin/hermes" --version 2>&1 | ts_prefix > "$LOG_DIR/version-head.log" \
     || fail "hermes --version failed after update"
   ok "hermes --version works post-update"
