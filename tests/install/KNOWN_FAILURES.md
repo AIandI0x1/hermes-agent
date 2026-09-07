@@ -39,4 +39,6 @@ Evidence required: an app-update leg from this released commit and those explici
 
 ## Not classified as unfixable
 
+The July desktop-installer → app-update failure was a driver lifetime bug, not a released-updater exception. The driver treated an expected page closure as failure and could exit before Playwright released its launch process. On Windows, inherited pipes delayed the `close` event even after the launch process exited with code 0. Playwright then ran its tree-kill cleanup. The driver now waits independently of the closing page, releases its pipe handles after process exit, and waits for `close` before it exits. [The real July rerun](https://github.com/ethernet8023/hermes-agent/actions/runs/34075042380/job/101599434616) reached the target commit, cleared the update marker, passed the CLI check, and relaunched the app.
+
 Onboarding click failures, zoom drift, native permission dialogs, AutoHotkey window waits, stale update markers, autostash conflicts, network failures, and generic timeouts remain actionable or unclassified until diagnosed. They must not inherit a historical label because they occurred on an old release.

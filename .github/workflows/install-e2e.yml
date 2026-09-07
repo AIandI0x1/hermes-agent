@@ -270,7 +270,7 @@ jobs:
               --paginate --jq '.jobs[] | {name, conclusion}' > /tmp/e2e-jobs.ndjson
             gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?per_page=100" \
               --paginate --jq '.artifacts[] | {name, id}' > /tmp/e2e-artifacts.ndjson
-            echo 'Legend: ✅ ran green · ❌ ran red · pre-desktop / TODO = why a leg skipped · 📼 opens the leg player (recording + synced logs)'
+            echo 'Legend: ✅ upgrade passed · known [n] = exact historical failure, see footnote · ❌ unexpected failure · pre-desktop / TODO = why a leg skipped · 📼 opens the leg player (recording + synced logs)'
             echo
             node scripts/sandbox/generate-e2e-matrix.mjs --format results \
               --tags '${{ needs.pick-releases.outputs.tags }}' \

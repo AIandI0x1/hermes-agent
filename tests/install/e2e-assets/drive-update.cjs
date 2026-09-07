@@ -19,8 +19,6 @@
 const path = require('node:path')
 const fs = require('node:fs')
 
-// Capture Playwright's native process teardown in disposable CI evidence.
-if (process.env.GITHUB_ACTIONS === 'true') process.env.DEBUG = 'pw:browser'
 const { _electron } = require('@playwright/test')
 const { prepareWindowForInput } = require('./window-input.cjs')
 const { observeProcessClose } = require('./process-close.cjs')
@@ -97,8 +95,7 @@ async function main() {
     timeout: 120_000
   })
   const child = app.process()
-  child.on('exit', (code, signal) => log(`launch process exit code=${code} signal=${signal}`))
-  child.on('close', (code, signal) => log(`launch process close code=${code} signal=${signal}`))
+
   const waitForProcessClose = observeProcessClose(child)
   log(`launched Electron pid=${child.pid}`)
 
@@ -326,12 +323,7 @@ async function main() {
 
   // A marker appears before Electron exits. Exiting this driver at that point
   // lets Playwright taskkill the entire tree, including the detached updater.
-  try {
-    await waitForProcessClose()
-  } catch (error) {
-    log(`launch process state: exitCode=${child.exitCode} signalCode=${child.signalCode} killed=${child.killed}`)
-    throw error
-  }
+  await waitForProcessClose()
   log('Electron process closed — detached updater owns the rest')
 }
 

@@ -801,12 +801,7 @@ function Invoke-GuiUpdateDesktopRoute([string]$TargetSha) {
         $updateLog = Join-Path $HermesHome "logs\update.log"
         $updateLogPos = 0
         $deadline = (Get-Date).AddMinutes(35)
-        $nextDiagnostic = Get-Date
         while ((Get-Date) -lt $deadline) {
-            if ($env:GITHUB_ACTIONS -eq "true" -and (Get-Date) -ge $nextDiagnostic) {
-                & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $AssetsDir "july-handoff-diagnostics.ps1") -WorkRoot $WorkRoot -Label "waiting"
-                $nextDiagnostic = (Get-Date).AddMinutes(2)
-            }
             if (Test-Path -LiteralPath $resultPath) { break }
             $head = ""
             try { $head = Get-InstalledHead } catch {}
@@ -880,9 +875,7 @@ function Invoke-GuiUpdateDesktopRoute([string]$TargetSha) {
             Write-Host "::endgroup::"
             Copy-Item $handoffLog (Join-Path $proof "desktop-update-handoff.log") -Force -ErrorAction SilentlyContinue
         }
-        if ($env:GITHUB_ACTIONS -eq "true") {
-            & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $AssetsDir "july-handoff-diagnostics.ps1") -WorkRoot $WorkRoot -Label "before-teardown"
-        }
+
         # Quit the relaunched app so job teardown is clean.
         Stop-HermesAppProcesses "post-update"
     }
@@ -978,14 +971,6 @@ function Invoke-PhaseUpdate {
 }
 
 function Invoke-CheckedPhaseUpdate {
-    # Trace old Python stacks on CI without replacing updater behavior.
-    $state = Read-State
-    if ($env:GITHUB_ACTIONS -eq "true" -and $state.old -eq "7c1a029553d87c43ecff8a3821336bc95872213b" -and $InstallMethod -eq "desktop-installer@latest" -and $Route -eq "open-app-update") {
-        $traceDir = Join-Path $AssetsDir "handoff-trace"
-        $env:PYTHONPATH = if ($env:PYTHONPATH) { "$traceDir;$env:PYTHONPATH" } else { $traceDir }
-        $env:HERMES_E2E_HANDOFF_TRACE = Join-Path $WorkRoot "proof\handoff-stacks"
-        $env:PYTHONUNBUFFERED = "1"
-    }
     Remove-Item -LiteralPath (Join-Path $WorkRoot "known-failure.json") -Force -ErrorAction SilentlyContinue
     # Only evidence produced by this update attempt can match an exception.
     foreach ($oldLog in @((Join-Path $WorkRoot "logs\update.log"), (Join-Path $HermesHome "logs\desktop.log"))) {
