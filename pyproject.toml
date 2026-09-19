@@ -10,10 +10,12 @@ readme = "README.md"
 # distro whose newest interpreter uv auto-picks) will otherwise select the
 # newest version the range allows. The ceiling tracks our Rust-backed
 # transitives: it was <3.14 while they lacked cp314 wheels (a maturin source
-# build fails). Those wheels now exist for every pinned compiled dep
-# (audit on #48723, 2026-09-04), and the one 3.14-only code break found since
-# (#58596, DaemonThreadPoolExecutor._worker signature) is fixed with tests in
-# this tree — CI now exercises 3.14 directly.
+# build fails). Wheels now exist for every locked compiled dep — the py314
+# job in .github/workflows/tests.yml proves it on every run via a locked
+# 3.14 sync (pillow-heif had to be bumped to 1.6.0 for cp314 wheels). The
+# one 3.14-only code break found so far (#58596,
+# DaemonThreadPoolExecutor._worker signature) is fixed with tests in this
+# tree and exercised by that same job.
 requires-python = ">=3.11,<3.15"
 authors = [{ name = "Nous Research" }]
 license = "MIT"
